@@ -21,7 +21,7 @@ export class MultimodalLiveClient extends EventEmitter {
     constructor() {
         super();
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        this.baseUrl  = `${wsProtocol}//${window.location.host}/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent`;
+        this.baseUrl  = `${wsProtocol}//${window.location.host}/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent`;
         this.ws = null;
         this.config = null;
         this.send = this.send.bind(this);
@@ -222,9 +222,24 @@ export class MultimodalLiveClient extends EventEmitter {
         const message = hasAudio && hasVideo ? 'audio + video' : hasAudio ? 'audio' : hasVideo ? 'video' : 'unknown';
         Logger.debug(`Sending realtime input: ${message} (${Math.round(totalSize/1024)}KB)`);
 
-        const data = { realtimeInput: { mediaChunks: chunks } };
-        this._sendDirect(data);
+        for (const chunk of chunks) {
+            const blob = {
+                mimeType: chunk.mimeType,
+                data: chunk.data
+            };
+            const realtimeInput = chunk.mimeType.includes('audio')
+                ? { audio: blob }
+                : { video: blob };
+
+            this._sendDirect({ realtimeInput });
+        }
         //this.log(`client.realtimeInput`, message);
+    }
+
+    endAudioStream() {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this._sendDirect({ realtimeInput: { audioStreamEnd: true } });
+        }
     }
 
     /**
@@ -246,18 +261,19 @@ export class MultimodalLiveClient extends EventEmitter {
      */
     send(parts, turnComplete = true) {
         parts = Array.isArray(parts) ? parts : [parts];
-        const formattedParts = parts.map(part => {
+        const text = parts.map(part => {
             if (typeof part === 'string') {
-                return { text: part };
-            } else if (typeof part === 'object' && !part.text && !part.inlineData) {
-                return { text: JSON.stringify(part) };
+                return part;
+            } else if (typeof part === 'object' && part.text) {
+                return part.text;
+            } else if (typeof part === 'object') {
+                return JSON.stringify(part);
             }
-            return part;
-        });
-        const content = { role: 'user', parts: formattedParts };
-        const clientContentRequest = { clientContent: { turns: [content], turnComplete } };
-        this._sendDirect(clientContentRequest);
-        this.log(`client.send`, clientContentRequest);
+            return String(part);
+        }).join('\n');
+        const realtimeInputRequest = { realtimeInput: { text } };
+        this._sendDirect(realtimeInputRequest);
+        this.log(`client.send`, realtimeInputRequest);
     }
 
     /**
@@ -294,4 +310,4 @@ export class MultimodalLiveClient extends EventEmitter {
             });
         }
     }
-} 
+}

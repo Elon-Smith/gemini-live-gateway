@@ -19,8 +19,6 @@ async function handleWebSocket(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const targetUrl = `wss://generativelanguage.googleapis.com${url.pathname}${url.search}`;
   
-  console.log('Target URL:', targetUrl);
-  
   const pendingMessages: string[] = [];
   const targetWs = new WebSocket(targetUrl);
   
@@ -86,7 +84,7 @@ async function handleAPIRequest(req: Request): Promise<Response> {
 
 async function handleRequest(req: Request): Promise<Response> {
   const url = new URL(req.url);
-  console.log('Request URL:', req.url);
+  console.log('Request received:', url.pathname);
 
   // WebSocket 处理
   if (req.headers.get("Upgrade")?.toLowerCase() === "websocket") {
@@ -127,4 +125,4 @@ async function handleRequest(req: Request): Promise<Response> {
   }
 }
 
-Deno.serve(handleRequest); 
+Deno.serve(handleRequest);

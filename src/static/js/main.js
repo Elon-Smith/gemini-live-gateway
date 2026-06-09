@@ -234,6 +234,9 @@ async function handleMicToggle() {
     } else {
         if (audioRecorder && isRecording) {
             audioRecorder.stop();
+            if (isConnected) {
+                client.endAudioStream();
+            }
         }
         isRecording = false;
         logMessage('Microphone stopped', 'system');
@@ -271,7 +274,7 @@ async function connectToWebsocket() {
     const config = {
         model: CONFIG.API.MODEL_NAME,
         generationConfig: {
-            responseModalities: responseTypeSelect.value,
+            responseModalities: [responseTypeSelect.value.toUpperCase()],
             speechConfig: {
                 languageCode: languageSelect.value,
                 voiceConfig: { 
@@ -320,17 +323,18 @@ async function connectToWebsocket() {
  * Disconnects from the WebSocket server.
  */
 function disconnectFromWebsocket() {
-    client.disconnect();
-    isConnected = false;
     if (audioStreamer) {
         audioStreamer.stop();
         if (audioRecorder) {
             audioRecorder.stop();
+            client.endAudioStream();
             audioRecorder = null;
         }
         isRecording = false;
         updateMicIcon();
     }
+    client.disconnect();
+    isConnected = false;
     connectButton.textContent = 'Connect';
     connectButton.classList.remove('connected');
     messageInput.disabled = true;

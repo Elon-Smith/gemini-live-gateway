@@ -18,7 +18,7 @@ export default {
 
     // 处理静态资源
     if (url.pathname === '/' || url.pathname === '/index.html') {
-      console.log('Serving index.html',env);
+      console.log('Serving index.html');
       return new Response(await env.__STATIC_CONTENT.get('index.html'), {
         headers: {
           'content-type': 'text/html;charset=UTF-8',
@@ -58,6 +58,14 @@ function getContentType(path) {
   return types[ext] || 'text/plain';
 }
 
+function describeMessageData(data) {
+  const dataType = typeof data;
+  const size = dataType === 'string'
+    ? data.length
+    : data?.byteLength || data?.size || 0;
+  return { dataType, size };
+}
+
 async function handleWebSocket(request, env) {
 
 
@@ -68,8 +76,6 @@ async function handleWebSocket(request, env) {
 	const url = new URL(request.url);
 	const pathAndQuery = url.pathname + url.search;
 	const targetUrl = `wss://generativelanguage.googleapis.com${pathAndQuery}`;
-	  
-	console.log('Target URL:', targetUrl);
   
   const [client, proxy] = new WebSocketPair();
   proxy.accept();
@@ -79,7 +85,7 @@ async function handleWebSocket(request, env) {
   
    const targetWebSocket = new WebSocket(targetUrl);
  
-   console.log('Initial targetWebSocket readyState:', targetWebSocket.readyState);
+   console.log('Gemini WebSocket initialized');
  
    targetWebSocket.addEventListener("open", () => {
      console.log('Connected to target server');
@@ -90,7 +96,7 @@ async function handleWebSocket(request, env) {
      for (const message of pendingMessages) {
       try {
         targetWebSocket.send(message);
-        console.log('Sent pending message:', message);
+        console.log('Sent pending message:', describeMessageData(message));
       } catch (error) {
         console.error('Error sending pending message:', error);
       }
@@ -99,11 +105,7 @@ async function handleWebSocket(request, env) {
    });
  
    proxy.addEventListener("message", async (event) => {
-     console.log('Received message from client:', {
-       dataPreview: typeof event.data === 'string' ? event.data.slice(0, 200) : 'Binary data',
-       dataType: typeof event.data,
-       timestamp: new Date().toISOString()
-     });
+     console.log('Received message from client:', describeMessageData(event.data));
      
      console.log("targetWebSocket.readyState"+targetWebSocket.readyState)
      if (targetWebSocket.readyState === WebSocket.OPEN) {
@@ -121,11 +123,7 @@ async function handleWebSocket(request, env) {
    });
  
    targetWebSocket.addEventListener("message", (event) => {
-     console.log('Received message from gemini:', {
-     dataPreview: typeof event.data === 'string' ? event.data.slice(0, 200) : 'Binary data',
-     dataType: typeof event.data,
-     timestamp: new Date().toISOString()
-     });
+     console.log('Received message from gemini:', describeMessageData(event.data));
      
      try {
      if (proxy.readyState === WebSocket.OPEN) {
