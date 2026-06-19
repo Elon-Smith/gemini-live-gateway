@@ -136,6 +136,10 @@ export class MultimodalLiveClient extends EventEmitter {
         return false;
     }
 
+    isOpen() {
+        return this.ws && this.ws.readyState === WebSocket.OPEN;
+    }
+
     /**
      * Receives and processes a message from the WebSocket server.
      * Handles different types of responses like tool calls, setup completion, and server content.
@@ -204,6 +208,11 @@ export class MultimodalLiveClient extends EventEmitter {
      * @param {Array} chunks - An array of media chunks to send. Each chunk should have a mimeType and data.
      */
     sendRealtimeInput(chunks) {
+        if (!this.isOpen()) {
+            Logger.warn('Skipping realtime input because WebSocket is not open');
+            return;
+        }
+
         let hasAudio = false;
         let hasVideo = false;
         let totalSize = 0;
@@ -260,6 +269,11 @@ export class MultimodalLiveClient extends EventEmitter {
      * @param {boolean} [turnComplete=true] - Indicates if this message completes the current turn.
      */
     send(parts, turnComplete = true) {
+        if (!this.isOpen()) {
+            Logger.warn('Skipping text input because WebSocket is not open');
+            return;
+        }
+
         parts = Array.isArray(parts) ? parts : [parts];
         const text = parts.map(part => {
             if (typeof part === 'string') {

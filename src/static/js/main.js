@@ -95,6 +95,11 @@ let videoManager = null;
 let isScreenSharing = false;
 let screenRecorder = null;
 let isUsingTool = false;
+let shouldReconnect = false;
+let hasConnectedOnce = false;
+let reconnectTimer = null;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_DELAY_MS = 30000;
 
 // Multimodal Client
 const client = new MultimodalLiveClient();
@@ -255,15 +260,57 @@ async function resumeAudioContext() {
     }
 }
 
+function clearReconnectTimer() {
+    if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+    }
+}
+
+function setConnectedState(connected) {
+    isConnected = connected;
+    connectButton.textContent = connected ? 'Disconnect' : 'Connect';
+    connectButton.classList.toggle('connected', connected);
+    messageInput.disabled = !connected;
+    sendButton.disabled = !connected;
+    micButton.disabled = !connected;
+    cameraButton.disabled = !connected;
+    screenButton.disabled = !connected;
+}
+
+function scheduleReconnect(reason, delayMs) {
+    if (!shouldReconnect || !hasConnectedOnce || isConnected || reconnectTimer) {
+        return;
+    }
+
+    const delay = delayMs ?? Math.min(MAX_RECONNECT_DELAY_MS, 1000 * Math.pow(2, reconnectAttempts));
+    logMessage(`Connection unavailable${reason ? `: ${reason}` : ''}. Reconnecting in ${Math.ceil(delay / 1000)}s`, 'system');
+
+    reconnectTimer = setTimeout(async () => {
+        reconnectTimer = null;
+        if (!shouldReconnect || isConnected) {
+            return;
+        }
+        reconnectAttempts += 1;
+        await connectToWebsocket(true);
+    }, delay);
+}
+
 /**
  * Connects to the WebSocket server.
  * @returns {Promise<void>}
  */
-async function connectToWebsocket() {
+async function connectToWebsocket(isAutoReconnect = false) {
     if (!apiKeyInput.value) {
         logMessage('Please input API Key', 'system');
         return;
     }
+
+    if (isConnected && client.isOpen()) {
+        return;
+    }
+
+    shouldReconnect = true;
 
     // Save values to localStorage
     localStorage.setItem('gemini_api_key', apiKeyInput.value);
@@ -294,28 +341,20 @@ async function connectToWebsocket() {
 
     try {
         await client.connect(config,apiKeyInput.value);
-        isConnected = true;
+        hasConnectedOnce = true;
+        reconnectAttempts = 0;
+        clearReconnectTimer();
+        setConnectedState(true);
         await resumeAudioContext();
-        connectButton.textContent = 'Disconnect';
-        connectButton.classList.add('connected');
-        messageInput.disabled = false;
-        sendButton.disabled = false;
-        micButton.disabled = false;
-        cameraButton.disabled = false;
-        screenButton.disabled = false;
-        logMessage('Connected to Gemini Multimodal Live API', 'system');
+        logMessage(isAutoReconnect ? 'Reconnected to Gemini Multimodal Live API' : 'Connected to Gemini Multimodal Live API', 'system');
     } catch (error) {
         const errorMessage = error.message || 'Unknown error';
         Logger.error('Connection error:', error);
         logMessage(`Connection error: ${errorMessage}`, 'system');
-        isConnected = false;
-        connectButton.textContent = 'Connect';
-        connectButton.classList.remove('connected');
-        messageInput.disabled = true;
-        sendButton.disabled = true;
-        micButton.disabled = true;
-        cameraButton.disabled = true;
-        screenButton.disabled = true;
+        setConnectedState(false);
+        if (isAutoReconnect) {
+            scheduleReconnect(errorMessage);
+        }
     }
 }
 
@@ -323,6 +362,9 @@ async function connectToWebsocket() {
  * Disconnects from the WebSocket server.
  */
 function disconnectFromWebsocket() {
+    shouldReconnect = false;
+    hasConnectedOnce = false;
+    clearReconnectTimer();
     if (audioStreamer) {
         audioStreamer.stop();
         if (audioRecorder) {
@@ -334,14 +376,7 @@ function disconnectFromWebsocket() {
         updateMicIcon();
     }
     client.disconnect();
-    isConnected = false;
-    connectButton.textContent = 'Connect';
-    connectButton.classList.remove('connected');
-    messageInput.disabled = true;
-    sendButton.disabled = true;
-    micButton.disabled = true;
-    cameraButton.disabled = true;
-    screenButton.disabled = true;
+    setConnectedState(false);
     logMessage('Disconnected from server', 'system');
     
     if (videoManager) {
@@ -375,7 +410,27 @@ client.on('log', (log) => {
 });
 
 client.on('close', (event) => {
-    logMessage(`WebSocket connection closed (code ${event.code})`, 'system');
+    const reason = event.reason || `code ${event.code}`;
+    logMessage(`WebSocket connection closed (${reason})`, 'system');
+    setConnectedState(false);
+    if (shouldReconnect && hasConnectedOnce && event.code !== 1000) {
+        scheduleReconnect(reason);
+    }
+});
+
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+        resumeAudioContext();
+        if (shouldReconnect && hasConnectedOnce && !client.isOpen()) {
+            scheduleReconnect('page returned to foreground', 0);
+        }
+    }
+});
+
+window.addEventListener('online', () => {
+    if (shouldReconnect && hasConnectedOnce && !client.isOpen()) {
+        scheduleReconnect('network is online', 0);
+    }
 });
 
 client.on('audio', async (data) => {
